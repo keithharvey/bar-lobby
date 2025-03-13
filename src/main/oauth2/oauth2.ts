@@ -1,4 +1,4 @@
-import { OAUTH_AUTHORIZATION_SERVER_URL, OAUTH_CLIENT_ID, OAUTH_SCOPE, OAUTH_WELL_KNOWN_URL } from "@main/config/server";
+import { configManager } from "@main/config/config-manager";
 import { generatePKCE } from "@main/oauth2/pkce";
 import RedirectHandler from "@main/oauth2/redirect-handler";
 import { accountService } from "@main/services/account.service";
@@ -7,6 +7,29 @@ import { shell } from "electron";
 import { stringify } from "node:querystring";
 
 const log = logger("oauth2-utils");
+
+// Cache for OAuth configuration
+let oauthConfigCache: {
+    authorizationServerUrl: string;
+    wellKnownUrl: string;
+    clientId: string;
+    scope: string;
+} | null = null;
+
+// Get OAuth configuration from the config manager with caching
+function getOAuthConfig() {
+    if (!oauthConfigCache) {
+        const config = configManager.getConfig();
+        oauthConfigCache = {
+            authorizationServerUrl: config.server.oauth.authorizationUrl,
+            wellKnownUrl: config.server.oauth.wellKnownUrl,
+            clientId: config.server.oauth.clientId,
+            scope: config.server.oauth.scope,
+        };
+        log.debug("OAuth configuration cached");
+    }
+    return oauthConfigCache;
+}
 
 interface TokenResponse {
     token: string;
@@ -19,7 +42,8 @@ export async function fetchAuthorizationServerMetadata(): Promise<{
     authorizationEndpoint: string;
     tokenEndpoint: string;
 }> {
-    const response = await fetch(OAUTH_WELL_KNOWN_URL);
+    const { wellKnownUrl, authorizationServerUrl } = getOAuthConfig();
+    const response = await fetch(wellKnownUrl);
     if (response.status !== 200) {
         const error = `Failed to fetch OAuth2 authorization server metadata: ${response.status} ${response.statusText}`;
         log.error(error);
@@ -33,8 +57,8 @@ export async function fetchAuthorizationServerMetadata(): Promise<{
         throw new Error(error);
     }
 
-    if (issuer !== OAUTH_AUTHORIZATION_SERVER_URL) {
-        const error = `Invalid OAuth2 issuer: ${issuer} does not match expected ${OAUTH_AUTHORIZATION_SERVER_URL}`;
+    if (issuer !== authorizationServerUrl) {
+        const error = `Invalid OAuth2 issuer: ${issuer} does not match expected ${authorizationServerUrl}`;
         log.error(error);
         throw new Error(error);
     }
@@ -47,9 +71,10 @@ export async function fetchAuthorizationServerMetadata(): Promise<{
 
 // Careful with shell.openExternal. https://benjamin-altpeter.de/shell-openexternal-dangers/
 function openInBrowser(url: string) {
+    const { authorizationServerUrl } = getOAuthConfig();
     if (!["https:", "http:"].includes(new URL(url).protocol)) return;
     // Additional checks to prevent opening arbitrary URLs
-    if (!url.startsWith(OAUTH_AUTHORIZATION_SERVER_URL)) return;
+    if (!url.startsWith(authorizationServerUrl)) return;
     shell.openExternal(url);
 }
 
@@ -59,6 +84,7 @@ function createUrlWithQuerystring(baseUrl: string, params: Record<string, string
 }
 
 export async function authenticate(): Promise<TokenResponse> {
+    const { clientId, scope } = getOAuthConfig();
     const { authorizationEndpoint, tokenEndpoint } = await fetchAuthorizationServerMetadata();
     const [code_verifier, code_challenge] = generatePKCE();
     const redirectHandler = new RedirectHandler();
@@ -67,8 +93,8 @@ export async function authenticate(): Promise<TokenResponse> {
         // TODO set state parameter to prevent CSRF attacks
         // https://www.rfc-editor.org/rfc/rfc6749#section-4.1.1
         const url = createUrlWithQuerystring(authorizationEndpoint, {
-            client_id: OAUTH_CLIENT_ID,
-            scope: OAUTH_SCOPE,
+            client_id: clientId,
+            scope: scope,
             response_type: "code",
             redirect_uri,
             code_challenge,
@@ -84,8 +110,8 @@ export async function authenticate(): Promise<TokenResponse> {
         log.debug(`Received OAuth2 code: ${code}`);
         const tokenUrl = createUrlWithQuerystring(tokenEndpoint, {
             grant_type: "authorization_code",
-            client_id: OAUTH_CLIENT_ID,
-            scoe: OAUTH_SCOPE,
+            client_id: clientId,
+            scoe: scope,
             code,
             code_verifier,
             redirect_uri,
@@ -122,6 +148,7 @@ export async function authenticate(): Promise<TokenResponse> {
 
 export async function renewAccessToken(): Promise<TokenResponse> {
     log.debug("Renewing access token");
+    const { clientId, scope } = getOAuthConfig();
     const { tokenEndpoint } = await fetchAuthorizationServerMetadata();
     const refreshToken = await accountService.getRefreshToken();
     if (!refreshToken) {
@@ -132,8 +159,8 @@ export async function renewAccessToken(): Promise<TokenResponse> {
     }
     const tokenUrl = createUrlWithQuerystring(tokenEndpoint, {
         grant_type: "refresh_token",
-        client_id: OAUTH_CLIENT_ID,
-        scope: OAUTH_SCOPE,
+        client_id: clientId,
+        scope: scope,
         refresh_token: refreshToken,
     });
     const tokenResponse = await fetch(tokenUrl, {

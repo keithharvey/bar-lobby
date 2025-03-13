@@ -19,7 +19,7 @@
                                     :key="scenario.title"
                                     :scenario="scenario"
                                     :class="{ selected: selectedScenario.scenarioid === scenario.scenarioid }"
-                                    @click="selectedScenario = scenario"
+                                    @click="(selectedScenario = scenario)"
                                 />
                             </TransitionGroup>
                         </div>
@@ -66,7 +66,7 @@ import Button from "@renderer/components/controls/Button.vue";
 import Select from "@renderer/components/controls/Select.vue";
 import ScenarioTile from "@renderer/components/misc/ScenarioTile.vue";
 import { Scenario } from "@main/content/game/scenario";
-import { LATEST_GAME_VERSION } from "@main/config/default-versions";
+import { LATEST_GAME_VERSION } from "@main/config/constants";
 import Panel from "@renderer/components/common/Panel.vue";
 import { db } from "@renderer/store/db";
 import { useDexieLiveQueryWithDeps } from "@renderer/composables/useDexieLiveQuery";

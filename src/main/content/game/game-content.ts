@@ -10,17 +10,18 @@ import { parseLuaOptions } from "@main/utils/parse-lua-options";
 import { BufferStream } from "@main/utils/buffer-stream";
 import { logger } from "@main/utils/logger";
 import assert from "assert";
-import { contentSources } from "@main/config/content-sources";
+import { configManager } from "@main/config/config-manager";
 import { DownloadInfo } from "@main/content/downloads";
 import { LuaOptionSection } from "@main/content/game/lua-options";
 import { Scenario } from "@main/content/game/scenario";
 import { SdpFileMeta, SdpFile } from "@main/content/game/sdp";
 import { PrDownloaderAPI } from "@main/content/pr-downloader";
-import { CONTENT_PATH, GAME_VERSIONS_GZ_PATH } from "@main/config/app";
+import { CONTENT_PATH, getGameVersionsGzPath } from "@main/config/app";
 import { GetScenarios } from "@main/content/game/type";
 
 const log = logger("game-content.ts");
 const gunzip = util.promisify(zlib.gunzip);
+const TEST_GAME_VERSION = "byar:test";
 
 export class GameContentAPI extends PrDownloaderAPI<string, GameVersion> {
     public packageGameVersionLookup: { [md5: string]: string } = {};
@@ -37,7 +38,7 @@ export class GameContentAPI extends PrDownloaderAPI<string, GameVersion> {
     // we can easily check if a version is installed from its md5
     protected async initLookupTables() {
         try {
-            const versionsGz = await fs.promises.readFile(GAME_VERSIONS_GZ_PATH);
+            const versionsGz = await fs.promises.readFile(getGameVersionsGzPath());
             const versions = await promisify(zlib.gunzip)(versionsGz);
             const versionsStr = versions.toString().trim();
             const versionsParts = versionsStr.split("\n");
@@ -103,27 +104,56 @@ export class GameContentAPI extends PrDownloaderAPI<string, GameVersion> {
     }
 
     public override isVersionInstalled(version: string) {
-        if (version === "byar:test") {
+        if (version === TEST_GAME_VERSION) {
             return false;
         }
         return this.availableVersions.values().some((installedVersion) => installedVersion.gameVersion === version);
     }
 
     /**
-     * Downloads the actual game files, will update to latest if no specific gameVersion is specified
-     * @param gameVersion e.g. "Beyond All Reason test-16289-b154c3d"
+     * Downloads the game files using the version specified in the config
      */
-    public async downloadGame(gameVersion = `${contentSources.rapid.game}:test`) {
-        // skip download if already installed
-        if (this.isVersionInstalled(gameVersion)) {
-            return;
-        }
-        log.info(`Downloading game version: ${gameVersion}`);
-        const downloadInfo = await this.downloadContent("game", gameVersion);
-        if (downloadInfo) {
-            await this.downloadComplete(downloadInfo);
-            removeFromArray(this.currentDownloads, downloadInfo);
-            log.debug(`Downloaded ${downloadInfo.name}`);
+    async downloadGame(): Promise<void> {
+        try {
+            const config = configManager.getConfig();
+            if (!config.versions?.game) {
+                throw new Error("Game version not configured");
+            }
+
+            const gameVersion = config.versions.game;
+            if (this.isVersionInstalled(gameVersion)) {
+                log.info(`Game version ${gameVersion} is already installed`);
+                return;
+            }
+
+            const downloadInfo = {
+                url: `https://springfiles.springrts.com/builds/${gameVersion}.sdz`,
+                destination: path.join(this.gameDirs, gameVersion),
+                totalBytes: 1, // Size is unknown at this point
+                assetName: `game_${gameVersion}`,
+            };
+
+            log.info(`Starting game download from: ${downloadInfo.url}`);
+            log.info(`Destination: ${downloadInfo.destination}`);
+
+            // Create download directory if it doesn't exist
+            await fs.promises.mkdir(downloadInfo.destination, { recursive: true });
+
+            // Download the game
+            const downloadResult = await this.prDownloaderAPI.downloadFile(downloadInfo);
+            log.info(`Game download completed: ${downloadResult}`);
+
+            // Add to available versions if not already present
+            if (!this.availableVersions.has(gameVersion)) {
+                this.availableVersions.set(gameVersion, {
+                    id: gameVersion,
+                    name: `Game ${gameVersion}`,
+                    isInstalled: true,
+                });
+            }
+        } catch (error) {
+            log.error("Failed to download game:", error);
+            throw error;
         }
     }
 
@@ -288,7 +318,7 @@ export class GameContentAPI extends PrDownloaderAPI<string, GameVersion> {
     }
 
     protected async addGame(gameVersion: string) {
-        if (gameVersion === "byar:test") {
+        if (gameVersion === TEST_GAME_VERSION) {
             await this.scanPackagesDir();
         } else {
             const packageMd5 = this.gameVersionPackageLookup[gameVersion];

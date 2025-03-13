@@ -19,6 +19,13 @@ const infoApi = {
 export type InfoApi = typeof infoApi;
 contextBridge.exposeInMainWorld("info", infoApi);
 
+const configApi = {
+    getConfig: (): Promise<any> => ipcRenderer.invoke("config:getConfig"),
+    getSummary: (): Promise<string> => ipcRenderer.invoke("config:getSummary"),
+};
+export type ConfigApi = typeof configApi;
+contextBridge.exposeInMainWorld("config", configApi);
+
 const mainWindowApi = {
     setFullscreen: (flag: boolean): Promise<void> => ipcRenderer.invoke("mainWindow:setFullscreen", flag),
     toggleFullscreen: (): Promise<void> => ipcRenderer.invoke("mainWindow:toggleFullscreen"),

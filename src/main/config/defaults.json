@@ -1,0 +1,34 @@
+{
+    "versions": {
+        "engine_download_url_prefix": "https://github.com/beyond-all-reason/spring/releases/download/2025.01.6/spring_bar_.rel2501.2025.01.6",
+        "game": "byar:test"
+    },
+    "contentSources": {
+        "rapid": {
+            "host": "repos-cdn.beyondallreason.dev",
+            "game": "byar"
+        },
+        "gameGithub": {
+            "owner": "beyond-all-reason",
+            "repo": "Beyond-All-Reason"
+        },
+        "engineGitHub": {
+            "owner": "beyond-all-reason",
+            "repo": "spring"
+        }
+    },
+    "defaultMaps": ["Quicksilver Remake 1.24", "Red Comet Remake 1.8"],
+    "mapParsing": {
+        "mipmapSize": 8
+    },
+    "server": {
+        "hostname": "lobby-server-dev.beyondallreason.dev",
+        "oauth": {
+            "authorizationUrl": "https://lobby-server-dev.beyondallreason.dev",
+            "wellKnownUrl": "https://lobby-server-dev.beyondallreason.dev/.well-known/oauth-authorization-server",
+            "clientId": "generic_lobby",
+            "scope": "tachyon.lobby"
+        },
+        "wsUrl": "wss://lobby-server-dev.beyondallreason.dev/tachyon"
+    }
+}

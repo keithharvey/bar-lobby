@@ -10,7 +10,8 @@
             "@preload/*": ["src/preload/*"],
             "$/*": ["vendor/*"]
         },
-
+        "resolveJsonModule": true,
+        "esModuleInterop": true,
         "strict": true,
         "strictNullChecks": true,
         // TODO: Enable these for better typechecking

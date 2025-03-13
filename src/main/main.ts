@@ -1,4 +1,4 @@
-import { app, net, protocol, session } from "electron";
+import { app, net, protocol, session, ipcMain } from "electron";
 import path from "path";
 import url from "url";
 
@@ -20,11 +20,19 @@ import { replayContentAPI } from "@main/content/replays/replay-content";
 import { authService } from "@main/services/auth.service";
 import { tachyonService } from "@main/services/tachyon.service";
 import netFromNode from "node:net";
+import { configManager } from "./config/config-manager";
 
 // Enable happy eyeballs for IPv6/IPv4 dual stack.
 netFromNode.setDefaultAutoSelectFamily(true);
 const log = logger("main/index.ts");
 log.info("Starting Electron main process");
+
+// Get config specification from command line arguments
+const configSpecArg = process.argv.find((arg) => arg.startsWith("--config="));
+const configSpec = configSpecArg ? configSpecArg.split("=")[1] : undefined;
+
+// Check for verbose logging flag
+const verboseLogging = process.argv.includes("--verbose-config-logging");
 
 if (process.env.NODE_ENV !== "production") {
     if (process.platform === "win32") {
@@ -89,6 +97,20 @@ app.commandLine.appendSwitch("force-device-scale-factor", "1");
 app.commandLine.appendSwitch("disable-pinch", "1");
 
 app.whenReady().then(async () => {
+    // Set verbose logging based on command line flag
+    configManager.setVerboseLogging(verboseLogging);
+
+    // Initialize configuration before anything else
+    await configManager.initialize(configSpec);
+
+    // Log configuration summary for debugging
+    log.info("Configuration initialized with the following settings:");
+    log.info(configManager.getConfigSummary());
+
+    // Register IPC handlers for configuration
+    ipcMain.handle("config:getConfig", () => configManager.getConfig());
+    ipcMain.handle("config:getSummary", () => configManager.getConfigSummary());
+
     registerBarFileProtocol();
 
     if (process.env.NODE_ENV !== "production") {

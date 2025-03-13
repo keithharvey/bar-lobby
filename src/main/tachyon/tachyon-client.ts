@@ -1,5 +1,5 @@
 import { Signal } from "$/jaz-ts-utils/signal";
-import { WS_SERVER_URL } from "@main/config/server";
+import { configManager } from "@main/config/config-manager";
 import { logger } from "@main/utils/logger";
 import { randomUUID } from "node:crypto";
 
@@ -9,6 +9,18 @@ import * as validators from "tachyon-protocol/validators";
 import { MessageEvent, WebSocket } from "ws";
 
 const log = logger("tachyon-client");
+
+// Cache for WebSocket server URL
+let wsServerUrlCache: string | null = null;
+
+// Get WebSocket server URL from config with caching
+function getWsServerUrl() {
+    if (!wsServerUrlCache) {
+        wsServerUrlCache = configManager.getConfig().server.wsUrl;
+        log.debug("WebSocket server URL cached");
+    }
+    return wsServerUrlCache;
+}
 
 export type TachyonClientRequestHandlers = {
     [CommandId in GetCommandIds<"server", "user", "request">]: (
@@ -37,8 +49,9 @@ export class TachyonClient {
                 reject("already_connected");
                 return;
             }
+            const wsServerUrl = getWsServerUrl();
             let serverProtocol: string | undefined;
-            this.socket = new WebSocket(WS_SERVER_URL, `v0.tachyon`, {
+            this.socket = new WebSocket(wsServerUrl, `v0.tachyon`, {
                 headers: {
                     authorization: `Bearer ${token}`,
                 },
@@ -63,7 +76,7 @@ export class TachyonClient {
                 }
             });
             this.socket.addEventListener("open", async () => {
-                log.info(`Connected to ${WS_SERVER_URL} using Tachyon Version ${tachyonMeta.version}`);
+                log.info(`Connected to ${wsServerUrl} using Tachyon Version ${tachyonMeta.version}`);
                 this.onSocketOpen.dispatch();
                 resolve();
             });
@@ -88,7 +101,7 @@ export class TachyonClient {
                 if (err.message.includes("invalid subprotocol")) {
                     disconnectReason = `Tachyon server protocol version (${serverProtocol}) is incompatible with this client (tachyon-${tachyonMeta.version})`;
                 } else if (err.message.includes("ECONNREFUSED")) {
-                    disconnectReason = `Could not connect to server at ${WS_SERVER_URL}`;
+                    disconnectReason = `Could not connect to server at ${wsServerUrl}`;
                 } else {
                     disconnectReason = err.message;
                 }

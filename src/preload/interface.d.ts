@@ -1,9 +1,10 @@
-import type { AuthApi, DownloadsApi, EngineApi, GameApi, InfoApi, MainWindowApi, MapsApi, MiscApi, ReplaysApi, SettingsApi, ShellApi, TachyonApi } from "@preload/preload";
+import type { AuthApi, ConfigApi, DownloadsApi, EngineApi, GameApi, InfoApi, MainWindowApi, MapsApi, MiscApi, ReplaysApi, SettingsApi, ShellApi, TachyonApi } from "@preload/preload";
 import type { TransitionProps } from "vue";
 
 declare global {
     interface Window {
         info: InfoApi;
+        config: ConfigApi;
         shell: ShellApi;
         mainWindow: MainWindowApi;
         replays: ReplaysApi;

@@ -2,7 +2,6 @@ import axios from "axios";
 import * as fs from "fs";
 import * as glob from "glob-promise";
 import { removeFromArray } from "$/jaz-ts-utils/object";
-import { Octokit } from "@octokit/rest";
 import * as path from "path";
 import { EngineAI, EngineVersion } from "@main/content/engine/engine-version";
 import { DownloadInfo } from "../downloads";
@@ -10,20 +9,20 @@ import { parseLuaTable } from "@main/utils/parse-lua-table";
 import { parseLuaOptions } from "@main/utils/parse-lua-options";
 import { logger } from "@main/utils/logger";
 import { extract7z } from "@main/utils/extract-7z";
-import { contentSources } from "@main/config/content-sources";
+import { configManager } from "@main/config/config-manager";
 import { AbstractContentAPI } from "@main/content/abstract-content";
 import { CONTENT_PATH } from "@main/config/app";
 import { DownloadEngine } from "@main/content/game/type";
+import { PrDownloaderAPI } from "@main/content/pr-downloader";
 
 const log = logger("engine-content.ts");
 
 // TODO: add support for old engine version tag naming scheme, careful it is not string sortable (!)
-// Regex matching new engine version tags (e.g. "2025.01.3", "2025.01.3-rc1")
-const compatibleVersionRegex = /^\d{4}\.\d{2}\.\d{1,2}(-rc\d+)?$/;
+// Regex matching engine version tags - accepting any format since we use it directly in the URL
+const compatibleVersionRegex = /^.+$/;
 
-export class EngineContentAPI extends AbstractContentAPI<string, EngineVersion> {
+export class EngineContentAPI extends PrDownloaderAPI<string, EngineVersion> {
     protected readonly engineDirs = path.join(CONTENT_PATH, "engine");
-    protected readonly ocotokit = new Octokit();
 
     public override async init() {
         try {
@@ -40,11 +39,51 @@ export class EngineContentAPI extends AbstractContentAPI<string, EngineVersion> 
                 const ais = await this.parseAis(dir);
                 this.availableVersions.set(dir, { id: dir, ais, installed: true });
             }
+
+            // Add the configured engine version to available versions
             try {
-                await this.fetchAvailableVersionsOnline();
+                const config = configManager.getConfig();
+
+                // Extract the engine version from the URL prefix
+                // We'll use the last part of the URL that contains version information
+                const urlPrefix = config.versions.engine_download_url_prefix;
+                const urlParts = urlPrefix.split("/");
+                const lastPart = urlParts[urlParts.length - 1];
+
+                // Extract the version identifier - typically after "spring_bar_." or the whole string if not found
+                let engineVersion = lastPart;
+                if (lastPart.includes("spring_bar_.")) {
+                    engineVersion = lastPart.split("spring_bar_.")[1];
+                } else if (lastPart.includes("rel")) {
+                    engineVersion = lastPart;
+                }
+
+                log.info(`Using engine version from URL prefix: ${engineVersion}`);
+
+                if (compatibleVersionRegex.test(engineVersion) && !this.availableVersions.has(engineVersion)) {
+                    this.availableVersions.set(engineVersion, {
+                        id: engineVersion,
+                        ais: [],
+                        installed: false,
+                    });
+                    log.info(`Added configured engine version: ${engineVersion}`);
+                }
+
+                // Log available versions
+                const availableVersions = Array.from(this.availableVersions.keys())
+                    .filter((version) => !this.availableVersions.get(version)?.installed)
+                    .sort((a, b) => a.localeCompare(b));
+
+                if (availableVersions.length > 0) {
+                    log.info("Engine versions available for download:");
+                    for (const version of availableVersions) {
+                        log.info(`-- Available: ${version}`);
+                    }
+                }
             } catch (err) {
-                log.error(`Failed to fetch available engine versions online: ${err}`);
+                log.error(`Failed to process configured engine version: ${err}`);
             }
+
             log.info(`Found ${this.availableVersions.size} engine versions total.`);
         } catch (err) {
             log.error(err);
@@ -57,93 +96,105 @@ export class EngineContentAPI extends AbstractContentAPI<string, EngineVersion> 
     }
 
     public getLatestInstalledVersion() {
-        return this.availableVersions
+        // Get the engine version from the configuration
+        try {
+            const config = configManager.getConfig();
+            const urlPrefix = config.versions.engine_download_url_prefix;
+            const urlParts = urlPrefix.split("/");
+            const lastPart = urlParts[urlParts.length - 1];
+
+            // Extract the version identifier
+            let configuredEngineVersion = lastPart;
+            if (lastPart.includes("spring_bar_.")) {
+                configuredEngineVersion = lastPart.split("spring_bar_.")[1];
+            } else if (lastPart.includes("rel")) {
+                configuredEngineVersion = lastPart;
+            }
+
+            // Check if the configured engine version is installed
+            if (this.isVersionInstalled(configuredEngineVersion)) {
+                const configuredVersion = this.availableVersions.get(configuredEngineVersion);
+                if (configuredVersion) {
+                    log.info(`Using configured engine version: ${configuredEngineVersion}`);
+                    return configuredVersion;
+                }
+            }
+        } catch (err) {
+            log.error(`Failed to get configured engine version: ${err}`);
+        }
+
+        // Fall back to the alphabetically latest installed version
+        const latestVersion = this.availableVersions
             .values()
             .filter((version) => version.installed)
             .toArray()
             .sort((a, b) => a.id.localeCompare(b.id))
             .at(-1);
-    }
 
-    protected async fetchAvailableVersionsOnline() {
-        const { data } = await this.ocotokit.rest.repos.listReleases({
-            owner: contentSources.engineGitHub.owner,
-            repo: contentSources.engineGitHub.repo,
-        });
-        data.map((release) => release.tag_name)
-            .filter((tag) => compatibleVersionRegex.test(tag))
-            .filter((tag) => !this.availableVersions.has(tag))
-            .map((tag) => {
-                return {
-                    id: tag,
-                    ais: [],
-                    installed: false,
-                };
-            })
-            .forEach((version) => {
-                this.availableVersions.set(version.id, version);
-            });
-    }
-
-    public downloadEngine: DownloadEngine = async (engineVersion) => {
-        if (!engineVersion) {
-            throw new Error("Engine Version is not specified");
+        if (latestVersion) {
+            log.info(`Using latest installed engine version: ${latestVersion.id}`);
+        } else {
+            log.warn("No installed engine versions found");
         }
 
+        return latestVersion;
+    }
+
+    async downloadEngine(): Promise<string> {
         try {
-            if (this.isVersionInstalled(engineVersion)) {
-                return;
+            const config = configManager.getConfig();
+            if (!config.versions?.engine_download_url_prefix) {
+                throw new Error("Engine download URL prefix not configured");
             }
-            const { data } = await this.ocotokit.rest.repos.getReleaseByTag({
-                owner: contentSources.engineGitHub.owner,
-                repo: contentSources.engineGitHub.repo,
-                tag: engineVersion,
-            });
-            if (!data) {
-                throw new Error(`Couldn't find engine release for tag: ${engineVersion}`);
+
+            const urlPrefix = config.versions.engine_download_url_prefix;
+            const platform = process.platform === "win32" ? "windows" : "linux";
+            const downloadUrl = `${urlPrefix}_amd64-${platform}.7z`;
+
+            // Extract version from URL prefix
+            const urlParts = urlPrefix.split("/");
+            const lastPart = urlParts[urlParts.length - 1];
+            let version = lastPart;
+
+            // Clean up version identifier for directory name
+            if (version.includes("spring_bar_")) {
+                version = version.split("spring_bar_")[1];
+            } else if (version.includes("rel")) {
+                version = version.split("rel")[1];
             }
-            const archStr = process.platform === "win32" ? "windows" : "linux";
-            const asset = data.assets.find((asset) => asset.name.includes(archStr) && asset.name.includes("portable"));
-            if (!asset) {
-                throw new Error("Failed to fetch engine release asset");
-            }
-            const downloadInfo: DownloadInfo = {
-                type: "engine",
-                name: engineVersion,
-                currentBytes: 0,
-                totalBytes: 1,
+
+            const downloadInfo = {
+                url: downloadUrl,
+                destination: path.join(this.engineDirs, version),
+                totalBytes: 1, // Size is unknown at this point
+                assetName: `engine_${version}`,
             };
-            this.currentDownloads.push(downloadInfo);
-            this.downloadStarted(downloadInfo);
-            log.info(`Downloading engine: ${engineVersion}`);
-            const downloadResponse = await axios({
-                url: asset.browser_download_url,
-                method: "get",
-                responseType: "arraybuffer",
-                headers: { "Content-Type": "application/7z" },
-                onDownloadProgress: (progress) => {
-                    downloadInfo.currentBytes = progress.loaded;
-                    downloadInfo.totalBytes = progress.total || -1;
-                    this.downloadProgress(downloadInfo);
-                },
-            });
-            const engine7z = downloadResponse.data as ArrayBuffer;
-            const downloadedFilePath = path.join(this.engineDirs, asset.name);
-            const engineDestinationPath = path.join(this.engineDirs, engineVersion);
-            log.info(`Extracting <${asset.name}> to ${engineDestinationPath}`);
-            await fs.promises.mkdir(this.engineDirs, { recursive: true });
-            await fs.promises.writeFile(downloadedFilePath, Buffer.from(engine7z), { encoding: "binary" });
-            await extract7z(downloadedFilePath, engineDestinationPath);
-            await fs.promises.unlink(downloadedFilePath);
-            removeFromArray(this.currentDownloads, downloadInfo);
-            log.info(`Extracted engine <${asset.name}>`);
-            await this.downloadComplete(downloadInfo);
-            log.info(`Downloaded engine: ${engineVersion}`);
-            return engineVersion;
-        } catch (err) {
-            log.error(err);
+
+            log.info(`Starting engine download from: ${downloadUrl}`);
+            log.info(`Destination: ${downloadInfo.destination}`);
+
+            // Create download directory if it doesn't exist
+            await fs.promises.mkdir(downloadInfo.destination, { recursive: true });
+
+            // Download the engine
+            const downloadResult = await this.downloadFile(downloadInfo);
+            log.info(`Engine download completed: ${downloadResult}`);
+
+            // Add to available versions if not already present
+            if (!this.availableVersions.has(version)) {
+                this.availableVersions.set(version, {
+                    id: version,
+                    ais: [],
+                    installed: true,
+                });
+            }
+
+            return version;
+        } catch (error) {
+            log.error("Failed to download engine:", error);
+            throw error;
         }
-    };
+    }
 
     public async uninstallVersion(version: EngineVersion | string) {
         if (typeof version === "object") {

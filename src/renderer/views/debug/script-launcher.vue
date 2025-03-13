@@ -14,7 +14,7 @@ import { ref } from "vue";
 
 import Button from "@renderer/components/controls/Button.vue";
 import Textarea from "@renderer/components/controls/Textarea.vue";
-import { LATEST_GAME_VERSION } from "@main/config/default-versions";
+import { LATEST_GAME_VERSION } from "@main/config/constants";
 
 const script = ref(`[game] {
     [ais] {

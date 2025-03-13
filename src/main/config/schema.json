@@ -1,0 +1,115 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Beyond All Reason Lobby Configuration",
+    "description": "Configuration schema for the Beyond All Reason Lobby application",
+    "type": "object",
+    "properties": {
+        "versions": {
+            "type": "object",
+            "description": "Game and engine version configuration",
+            "properties": {
+                "engine_download_url_prefix": {
+                    "type": "string",
+                    "description": "Complete URL prefix for engine downloads. This is combined with architecture-specific suffix to form the complete download URL."
+                },
+                "game": {
+                    "type": "string",
+                    "description": "Default game version to use. Can be a rapid tag (e.g. 'byar:latest', 'byar:test') or a specific version"
+                }
+            },
+            "required": ["engine_download_url_prefix", "game"]
+        },
+        "contentSources": {
+            "type": "object",
+            "description": "Content source configuration",
+            "properties": {
+                "rapid": {
+                    "type": "object",
+                    "properties": {
+                        "host": {
+                            "type": "string"
+                        },
+                        "game": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["host", "game"]
+                },
+                "gameGithub": {
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string"
+                        },
+                        "repo": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["owner", "repo"]
+                },
+                "engineGitHub": {
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string"
+                        },
+                        "repo": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["owner", "repo"]
+                }
+            },
+            "required": ["rapid", "gameGithub", "engineGitHub"]
+        },
+        "defaultMaps": {
+            "type": "array",
+            "description": "The maps in this list will be downloaded sequentially in the background and in this order",
+            "items": {
+                "type": "string"
+            }
+        },
+        "mapParsing": {
+            "type": "object",
+            "description": "Map parsing configuration",
+            "properties": {
+                "mipmapSize": {
+                    "type": "integer"
+                }
+            },
+            "required": ["mipmapSize"]
+        },
+        "server": {
+            "type": "object",
+            "description": "Server configuration",
+            "properties": {
+                "hostname": {
+                    "type": "string"
+                },
+                "oauth": {
+                    "type": "object",
+                    "properties": {
+                        "authorizationUrl": {
+                            "type": "string"
+                        },
+                        "wellKnownUrl": {
+                            "type": "string"
+                        },
+                        "clientId": {
+                            "type": "string"
+                        },
+                        "scope": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["authorizationUrl", "wellKnownUrl", "clientId", "scope"]
+                },
+                "wsUrl": {
+                    "type": "string"
+                }
+            },
+            "required": ["hostname", "oauth", "wsUrl"]
+        }
+    },
+    "required": ["versions", "contentSources", "defaultMaps", "mapParsing", "server"]
+}

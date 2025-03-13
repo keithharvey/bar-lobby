@@ -7,8 +7,7 @@
 </template>
 
 <script lang="ts" setup>
-import { defaultMaps } from "@main/config/default-maps";
-import { LATEST_GAME_VERSION } from "@main/config/default-versions";
+import { LATEST_GAME_VERSION } from "@main/config/constants";
 import { DownloadInfo } from "@main/content/downloads";
 import { initBattleStore } from "@renderer/store/battle.store";
 import { db } from "@renderer/store/db";
@@ -16,6 +15,7 @@ import { downloadsStore } from "@renderer/store/downloads.store";
 import { enginesStore } from "@renderer/store/engine.store";
 import { downloadGame } from "@renderer/store/game.store";
 import { onMounted, ref, watch } from "vue";
+import { ipcRenderer } from "electron";
 
 const emit = defineEmits<{
     (event: "complete"): void;
@@ -43,7 +43,8 @@ onMounted(async () => {
     if (installedMaps === 0) {
         state.value = "maps";
         text.value = "Downloading maps";
-        await window.maps.downloadMaps(defaultMaps);
+        const config = await window.config.getConfig();
+        await window.maps.downloadMaps(config.defaultMaps);
     }
 
     await initBattleStore();
